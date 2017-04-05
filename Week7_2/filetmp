@@ -1,0 +1,122 @@
+// ConsoleApplication1.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "stdio.h"
+#include "conio.h"
+#include "string.h"
+#include "ws2tcpip.h"
+#include "winsock2.h"
+#include "process.h"
+#include "ctype.h"
+#include "mylib.h"
+
+#pragma comment(lib, "Ws2_32.lib")
+
+#define SERVER_ADDR "127.0.0.1"
+#define QUEUE_SIZE 10
+#define BUFFSIZE 512
+
+unsigned __stdcall serverUp(void *param);
+
+int main(int argc, char** argv) {
+	char *USAGE = "USAGE: server -p portnumber\n";
+	int Server_port;
+	if (argc != 3 || (strcmp(argv[1], "-p") != 0)){
+		printf("%s", USAGE);
+		_getch();
+		return 1;
+	}
+
+	Server_port = atoi(argv[2]);
+	// window socket init
+	WSADATA wsaData;
+	WORD wVersion = MAKEWORD(2, 2);
+	if (WSAStartup(wVersion, &wsaData))
+		printf("Version is not supported\n");
+
+	//Construct socket	
+	SOCKET listenSock;
+	listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	//Bind address to socket
+	sockaddr_in serverAddr;
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(Server_port);
+	serverAddr.sin_addr.s_addr = inet_addr(SERVER_ADDR);
+
+	if (bind(listenSock, (sockaddr*)&serverAddr, sizeof(serverAddr))) {
+		printf("Error: cant not bind socket to port\n");
+		_getch();
+		return 0;
+	}
+
+	if (listen(listenSock, QUEUE_SIZE)) {
+		printf("Error: cant listen for socket\n");
+		_getch();
+		return 0;
+	}
+
+	printf("server started at [%s:%d]\n", SERVER_ADDR, Server_port);
+
+	//new socket to client connect
+	SOCKET conn_sock;
+
+	sockaddr_in clientAddr;
+	int clientAddrlen = sizeof(clientAddr);
+
+	while (true) {
+		conn_sock = accept(listenSock, (sockaddr*)&clientAddr, &clientAddrlen);
+		printf("Accept new connection from :[%s:%d]\n", inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
+		_beginthreadex(0, 0, serverUp, (void *)conn_sock, 0, 0); //start thread
+	}
+	closesocket(listenSock);
+	WSACleanup();
+	return 0;
+}
+
+unsigned __stdcall serverUp(void *param) {
+	SOCKET server_sock = (SOCKET)param;
+	char buffer[BUFFSIZE];
+	struct packet_header packet_header;
+	int cipher = 0;
+	int decipher = 0;
+	while (true) {
+		//get initial header
+		if (recv(server_sock, buffer, BUFFSIZE, 0) < 0){
+			printf("terminate connection at client\n");
+			break;
+		}
+		//copy header
+		memcpy(&packet_header, buffer, sizeof(packet_header));
+		int key;
+		memcpy(&key, buffer + sizeof(packet_header), sizeof(int));
+		switch (packet_header.opcode)
+		{
+		case 0:
+			//server send ok
+			printf("Server ready to encrypt file\n");
+			header_wraper(buffer, 2, 1);
+			send(server_sock, buffer, sizeof packet_header + 1, 0);
+
+			file_encrypt_handler(&server_sock, buffer, key);
+			continue;
+		case 1:
+			//server send ok
+			printf("Server ready to decrypt file\n");
+			header_wraper(buffer, 2, 1);
+			send(server_sock, buffer, sizeof packet_header + 1, 0);
+
+			file_decrypt_handler(&server_sock, buffer, key);
+			continue;
+		default:
+			// error not recongize
+			header_wraper(buffer, 3, 1);
+			send(server_sock, buffer, sizeof(packet_header), 0);
+			break;
+		}
+	}
+	return 0;
+}
+
+nd(server_sock, buffer, sizeof packet_header + 1, 0);
